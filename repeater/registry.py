@@ -1,6 +1,6 @@
 from zope.interface.registry import Components
 
-from repeater.application import RequestSerializer
+from repeater.application import RequestSerializer as _RequestSerializer
 from repeater.gevent_concurrency import GEventConcurrencyUtils
 from repeater.gevent_server import GEventServer
 from repeater.interfaces import (
@@ -12,23 +12,41 @@ from repeater.interfaces import (
 from repeater.redis_queue import RedisQueueConstructor
 
 
+class DefaultComponents(object):
+    ConcurrencyUtils = GEventConcurrencyUtils
+    ServerConstructor = GEventServer
+    RequestSerializer = _RequestSerializer
+    QueueConstructor = RedisQueueConstructor
+
+
 class Registry(object):
+
+    components_class = Components
+    default_components = DefaultComponents
 
     def __init__(self, settings, _components=None):
         self.settings = settings
-        self._components = _components or Components()
+        self._components = _components or self.components_class()
 
         if not self._components.queryUtility(IConcurrencyUtils):
-            self._components.registerUtility(GEventConcurrencyUtils())
+            self._components.registerUtility(
+                self.default_components.ConcurrencyUtils()
+            )
 
         if not self._components.queryUtility(IServerConstructor):
-            self._components.registerUtility(GEventServer)
+            self._components.registerUtility(
+                self.default_components.ServerConstructor
+            )
 
         if not self._components.queryUtility(IRequestSerializer):
-            self._components.registerUtility(RequestSerializer())
+            self._components.registerUtility(
+                self.default_components.RequestSerializer()
+            )
 
         if not self._components.queryUtility(IRequestQueueConstructor):
-            self._components.registerUtility(RedisQueueConstructor(self))
+            self._components.registerUtility(
+                self.default_components.QueueConstructor(self)
+            )
 
     def get_concurrency_utils(self):
         return self._components.queryUtility(IConcurrencyUtils)

@@ -32,7 +32,7 @@ class QueueHandler(object):
         self.host = host
         self.proxies = proxies
         self.requests = registry.construct_request_queue(host)
-        self.greenlet = None
+        self.handler = None
         self.concurrency = registry.get_concurrency_utils()
         self.lock = self.concurrency.semaphore()
         self.backoff = registry.settings['backoff_timeout']
@@ -40,23 +40,24 @@ class QueueHandler(object):
         if self.requests:
             self._start()
 
-    def _start(self):
-        with self.lock:
-            if not self.greenlet:
-                self.greenlet = self.concurrency.spawn(self.handle)
-
     def push(self, request):
         self.requests.append(request)
         self._start()
 
-    def handle(self):
+    def _start(self):
+        with self.lock:
+            if not self.handler:
+                self.handler = self.concurrency.spawn(self._handle)
+
+    def _handle(self):
         backoff = 0
         while self.requests:
-            self.concurrency.sleep(backoff)
+            if backoff:
+                self.concurrency.sleep(backoff)
             while self.requests:
                 req = self.requests.top()
                 logging.debug('Trying to forward request: %s' % req.path)
-                if self.forward(req):
+                if self._forward(req):
                     self.requests.pop()
                     backoff = self.backoff
                     if self.requests:
@@ -65,9 +66,9 @@ class QueueHandler(object):
                     break
             backoff = 2 * backoff if backoff else self.backoff
         with self.lock:
-            self.greenlet = None
+            self.handler = None
 
-    def forward(self, request):
+    def _forward(self, request):
         try:
             proxy = self.proxies[request.path_info]
             response = request.get_response(proxy)
@@ -90,6 +91,7 @@ class Repeater(object):
     # 4. Repeater verifies if incoming request comes from allowed IP
 
     queue_handler = QueueHandler  # for tests
+    proxy = wsgiproxy.app.WSGIProxyApp  # for tests
 
     def __init__(self, hooks, registry):
         self.registry = registry
@@ -100,9 +102,7 @@ class Repeater(object):
 
             dst_host = hook_spec['dst_host']
             dst_path = hook_spec['dst_path']
-            proxies[hook_name] = wsgiproxy.app.WSGIProxyApp(
-                '%s%s' % (dst_host, dst_path)
-            )
+            proxies[hook_name] = self.proxy('%s%s' % (dst_host, dst_path))
 
             if dst_host not in hosts:
                 hosts[dst_host] = [hook_name]
@@ -121,10 +121,10 @@ class Repeater(object):
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
-        resp = self.handle(req)
+        resp = self._handle(req)
         return resp(environ, start_response)
 
-    def handle(self, request):
+    def _handle(self, request):
         queue = self.paths.get(request.path_info)
         if queue:
             queue.push(request.copy())

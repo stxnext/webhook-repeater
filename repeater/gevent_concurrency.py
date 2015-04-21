@@ -9,32 +9,37 @@ from repeater.interfaces import (
 )
 
 
-@implementer(IConcurrencyUtils)
-class GEventConcurrencyUtils(object):
-
-    def __init__(self):
-        # need this because of wsgiproxy (which use httplib)
-        # and redis-py (which use standard socket module)
-        gevent.monkey.patch_socket()
-
-    def spawn(self, func):
-        gevent.spawn(func)
-
-    def semaphore(self):
-        return GEventSemaphore()
-
-    def sleep(self, sec):
-        gevent.sleep(sec)
-
-
 @implementer(ISemaphore)
 class GEventSemaphore(object):
 
+    gevent_mod = gevent
+
     def __init__(self):
-        self.sem = gevent.lock.Semaphore()
+        self.sem = self.gevent_mod.lock.Semaphore()
 
     def __enter__(self):
         self.sem.acquire()
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.sem.release()
+
+
+@implementer(IConcurrencyUtils)
+class GEventConcurrencyUtils(object):
+
+    gevent_mod = gevent
+    semaphore_class = GEventSemaphore
+
+    def __init__(self):
+        # need this because of wsgiproxy (which use httplib)
+        # and redis-py (which use standard socket module)
+        self.gevent_mod.monkey.patch_socket()
+
+    def spawn(self, func):
+        self.gevent_mod.spawn(func)
+
+    def semaphore(self):
+        return self.semaphore_class()
+
+    def sleep(self, sec):
+        self.gevent_mod.sleep(sec)

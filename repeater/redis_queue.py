@@ -8,24 +8,6 @@ from repeater.interfaces import (
 )
 
 
-@implementer(IRequestQueueConstructor)
-class RedisQueueConstructor(object):
-
-    def __init__(self, registry):
-        self.registry = registry
-        self.redis = None
-
-    def __call__(self, name):
-        if not self.redis:
-            settings = self.registry.settings
-            self.redis = redis.Redis(
-                host=settings['redis_host'],
-                port=settings['redis_port'],
-                db=settings['redis_db']
-            )
-        return RedisQueue(name, self.redis, self.registry)
-
-
 @implementer(IRequestQueue)
 class RedisQueue(object):
 
@@ -49,3 +31,24 @@ class RedisQueue(object):
 
     def __nonzero__(self):
         return self.redis.llen(self.name)
+
+
+@implementer(IRequestQueueConstructor)
+class RedisQueueConstructor(object):
+
+    redis_queue = RedisQueue
+    redis_mod = redis
+
+    def __init__(self, registry):
+        self.registry = registry
+        self.redis = None
+
+    def __call__(self, name):
+        if not self.redis:
+            settings = self.registry.settings
+            self.redis = self.redis_mod.Redis(
+                host=settings['redis_host'],
+                port=settings['redis_port'],
+                db=settings['redis_db']
+            )
+        return self.redis_queue(name, self.redis, self.registry)
