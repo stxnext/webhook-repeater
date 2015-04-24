@@ -1,3 +1,6 @@
+"""
+This module provides the server. See interfaces.py for documentation.
+"""
 import gevent.wsgi
 from zope.interface import (
     implementer,

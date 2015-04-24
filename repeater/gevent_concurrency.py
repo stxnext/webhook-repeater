@@ -1,3 +1,7 @@
+"""
+This module provides utilities for concurrency. See interfaces.py
+for documentation.
+"""
 import gevent
 import gevent.lock
 import gevent.monkey

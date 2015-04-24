@@ -1,3 +1,7 @@
+"""
+This module provides persistance layer for the application.
+See interfaces.py for documentation.
+"""
 
 import redis
 from zope.interface import implementer

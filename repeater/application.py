@@ -28,6 +28,10 @@ class RequestSerializer(object):
 
 class QueueHandler(object):
 
+    # This is a so-called queue handler. We got one for each remote host:port.
+    # It stores requests addressed for endpoints on the host:port
+    # and delivers them when possible.
+
     def __init__(self, host, proxies, registry):
         self.host = host
         self.proxies = proxies
@@ -51,6 +55,12 @@ class QueueHandler(object):
                 self.handler = self.concurrency.spawn(self._handle)
 
     def _handle(self):
+        # This is executed in separate thread/coroutine
+        # It tries to empty request queue. We wait self.timeout seconds
+        # between to requests (we don't want to kill Intranet). In case
+        # of remote endpoint failure we wait self.backoff seconds and double
+        # that on each consecutive failure (until we reach self.max_backoff).
+        # When queue is empty we simply exists.
         backoff = 0
         while self.requests:
             if backoff:
