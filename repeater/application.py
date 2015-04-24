@@ -36,6 +36,7 @@ class QueueHandler(object):
         self.concurrency = registry.get_concurrency_utils()
         self.lock = self.concurrency.semaphore()
         self.backoff = registry.settings['backoff_timeout']
+        self.max_backoff = registry.settings['backoff_max_timeout']
         self.timeout = registry.settings['timeout']
         if self.requests:
             self._start()
@@ -65,6 +66,8 @@ class QueueHandler(object):
                 else:
                     break
             backoff = 2 * backoff if backoff else self.backoff
+            if backoff > self.max_backoff:
+                backoff = self.max_backoff
         with self.lock:
             self.handler = None
 

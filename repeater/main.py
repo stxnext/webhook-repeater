@@ -111,7 +111,7 @@ def main(
 
         server_options = [
             ('host', '0.0.0.0', str),
-            ('port', 8080, int),
+            ('port', 8100, int),
         ]
         config = {}
         if parser.has_section('server'):
@@ -125,6 +125,7 @@ def main(
             ('redis_port', 6379, int),
             ('redis_db', 0, int),
             ('backoff_timeout', 60, int),
+            ('backoff_max_timeout', 3600, int),
             ('timeout', 1, int),
         ]
         if parser.has_section('app'):

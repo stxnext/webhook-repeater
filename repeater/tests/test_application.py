@@ -64,6 +64,7 @@ class QueueHandlerTestCase(unittest.TestCase):
         self.registry = mock.Mock()
         self.registry.settings = {
             'backoff_timeout': 1,
+            'backoff_max_timeout': 4,
             'timeout': 2
         }
 
@@ -188,6 +189,30 @@ class QueueHandlerTestCase(unittest.TestCase):
         assert self.concurrency_utils.sleep.mock_calls[0][1] == (1, )
         assert self.concurrency_utils.sleep.mock_calls[1][1] == (2, )
         assert self.concurrency_utils.sleep.call_count == 2
+
+    def test_max_backoff(self):
+        req1 = mock.Mock()
+        req1.path_info = 'path1'
+        resp = mock.Mock()
+        resp.status_code = 200
+        req1.get_response.side_effect = [
+            IOError(),
+            IOError(),
+            IOError(),
+            IOError(),
+            resp
+        ]
+        self.queue[:] = [req1]
+        QueueHandler('name', self.proxies, self.registry)
+
+        worker = self.concurrency_utils.spawn.mock_calls[0][1][0]
+        worker()
+        assert not self.queue
+        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1, )
+        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2, )
+        assert self.concurrency_utils.sleep.mock_calls[2][1] == (4, )
+        assert self.concurrency_utils.sleep.mock_calls[3][1] == (4, )
+        assert self.concurrency_utils.sleep.call_count == 4
 
 
 class RepeaterTestCase(unittest.TestCase):
