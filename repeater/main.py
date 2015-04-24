@@ -1,5 +1,6 @@
 import argparse as argparse
 import ConfigParser as configparser
+import logging.config
 import sys
 
 from repeater.application import Repeater as _Repeater
@@ -101,10 +102,29 @@ def main(
 
     try:
         parser = argument_parser()
-        parser.add_argument('-c', '--config', default='config.ini')
-        parser.add_argument('-p', '--port', type=int, default=nodefault)
-        parser.add_argument('-H', '--host', type=str, default=nodefault)
+        parser.add_argument(
+            '-c',
+            '--config',
+            default='config.ini',
+            help='Path to config file (default: ./config.init)'
+        )
+        parser.add_argument(
+            '-p',
+            '--port',
+            type=int,
+            default=nodefault,
+            help='Port to listen on (default: 8100)'
+        )
+        parser.add_argument(
+            '-H',
+            '--host',
+            type=str,
+            default=nodefault,
+            help='Interface to bind to (default: 0.0.0.0)'
+        )
         args = parser.parse_args(argv[1:])
+
+        logging.config.fileConfig(args.config)
 
         parser = config_parser()
         parser.read([args.config])
