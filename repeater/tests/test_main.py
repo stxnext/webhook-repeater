@@ -209,6 +209,7 @@ class MainTestCase(unittest.TestCase):
         self.repeater = self.repeater_constructor.return_value
         self.registry = self.bootstrap.return_value
         self.server = self.registry.construct_server.return_value
+        self.logging_config = mock.Mock()
 
     def call_main(self, argv=None):
         return main(
@@ -220,6 +221,7 @@ class MainTestCase(unittest.TestCase):
             parse_hooks=self.parse_hooks,
             bootstrap=self.bootstrap,
             repeater=self.repeater_constructor,
+            logging_config=self.logging_config,
         )
 
     def test_serve_app(self):
@@ -239,3 +241,4 @@ class MainTestCase(unittest.TestCase):
             1234
         )
         assert self.server.serve_forever.call_count == 1
+        assert self.logging_config.fileConfig.call_count == 1

@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 import cStringIO as stringio
@@ -8,6 +9,14 @@ import wsgiproxy.app
 from zope.interface import implementer
 
 from repeater.interfaces import IRequestSerializer
+
+
+def sign_request(request, secret):
+    body = request.body  # by purpose to compute missing content_length
+    msg = request.content_type + str(request.content_length) + body
+    sig = hmac.new(secret, msg).hexdigest()
+    request.headers['X-REPEATER-SIG'] = sig
+    return request
 
 
 @implementer(IRequestSerializer)
@@ -23,6 +32,8 @@ class RequestSerializer(object):
         env['X-REPEATER-BODY'] = env['wsgi.input'].read()
         del env['wsgi.input']
         del env['wsgi.errors']
+        if 'webob._body_file' in env:
+            del env['webob._body_file']
         return json.dumps(env)
 
 
@@ -96,18 +107,18 @@ class QueueHandler(object):
 
 class Repeater(object):
 
-    # 1. Repeater has one queue per destination (host:port)
-    # 2. Each incoming request is put in proper destination queue
-    # 3. Incoming request is matched to destination queue using PATH_INFO
-    #
-    # Wish list:
-    # 4. Repeater verifies if incoming request comes from allowed IP
+    # 1. Repeater verifies if incoming request comes from allowed IP
+    # 2. Repeater has one queue per destination (host:port)
+    # 3. Each incoming request is put in proper destination queue based
+    #    on PATH_INFO
+    # 4. When request is forwarded it is signed using secret
 
     queue_handler = QueueHandler  # for tests
     proxy = wsgiproxy.app.WSGIProxyApp  # for tests
 
     def __init__(self, hooks, registry):
         self.registry = registry
+        self.secret = registry.settings['secret']
         self.paths = {}
         proxies = {}
         hosts = {}
@@ -130,7 +141,8 @@ class Repeater(object):
             queue = self.queue_handler(host_name, queue_proxies, registry)
             for hook_name in hook_names:
                 src_path = hooks[hook_name]['src_path']
-                self.paths[src_path] = queue
+                src_host = hooks[hook_name]['src_host']
+                self.paths[src_path] = (src_host, queue)
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
@@ -138,12 +150,15 @@ class Repeater(object):
         return resp(environ, start_response)
 
     def _handle(self, request):
-        queue = self.paths.get(request.path_info)
-        if queue:
-            queue.push(request.copy())
-            response = webob.Response()
-            response.status = '200 OK'
-            response.content_type = 'text/plain'
-            response.body = 'OK'
-            return response
-        return webob.exc.HTTPNotFound()
+        host, queue = self.paths.get(request.path_info, (None, None))
+        if not host:
+            return webob.exc.HTTPNotFound()
+        if request.remote_addr != host:
+            return webob.exc.HTTPForbidden()
+        request = sign_request(request.copy(), self.secret)
+        queue.push(request)
+        response = webob.Response()
+        response.status = '200 OK'
+        response.content_type = 'text/plain'
+        response.body = 'OK'
+        return response

@@ -9,6 +9,7 @@ from repeater.application import (
     RequestSerializer,
     QueueHandler,
     Repeater,
+    sign_request
 )
 
 
@@ -221,7 +222,8 @@ class RepeaterTestCase(unittest.TestCase):
         self.registry = mock.Mock()
         self.registry.settings = {
             'backoff_timeout': 1,
-            'timeout': 2
+            'timeout': 2,
+            'secret': 'secret'
         }
         concurrency_utils = self.registry.get_concurrency_utils.return_value
         self.semaphore = concurrency_utils.semaphore.return_value
@@ -303,19 +305,32 @@ class RepeaterTestCase(unittest.TestCase):
 
     def test_request(self):
         req = webob.Request.blank('/src_path1')
+        req.remote_addr = 'src_host1'
         req.get_response(self.repeater)
         req_copy = self.handlers[0].push.mock_calls[0][1][0]
         assert req_copy.path_info == '/src_path1'
         assert self.handlers[0].push.call_count == 1
 
         req = webob.Request.blank('/src_path2')
+        req.remote_addr = 'src_host3'
         req.get_response(self.repeater)
         req_copy = self.handlers[0].push.mock_calls[1][1][0]
         assert req_copy.path_info == '/src_path2'
         assert self.handlers[0].push.call_count == 2
 
         req = webob.Request.blank('/src_path3')
+        req.remote_addr = 'src_host3'
         req.get_response(self.repeater)
         req_copy = self.handlers[1].push.mock_calls[0][1][0]
         assert req_copy.path_info == '/src_path3'
         assert self.handlers[1].push.call_count == 1
+
+
+class SignRequestTestCase(unittest.TestCase):
+
+    def test_sign_request(self):
+        req = webob.Request.blank('/')
+        req.body = 'ala ma kota'
+        req = sign_request(req, 'secret')
+        sig = req.headers['X-REPEATER-SIG']
+        assert sig == '65a415c101d8103bc3866bfe9d5dc818'

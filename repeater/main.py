@@ -98,7 +98,7 @@ def main(
         parse_hooks=parse_hooks,
         bootstrap=_bootstrap,
         repeater=_Repeater,
-    ):
+        logging_config=logging.config):
 
     try:
         parser = argument_parser()
@@ -124,7 +124,7 @@ def main(
         )
         args = parser.parse_args(argv[1:])
 
-        logging.config.fileConfig(args.config)
+        logging_config.fileConfig(args.config)
 
         parser = config_parser()
         parser.read([args.config])
@@ -147,6 +147,7 @@ def main(
             ('backoff_timeout', 60, int),
             ('backoff_max_timeout', 3600, int),
             ('timeout', 1, int),
+            ('secret', nodefault, str)
         ]
         if parser.has_section('app'):
             config = dict(parser.items('app'))

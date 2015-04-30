@@ -33,6 +33,7 @@ class ReqDumper(object):
             datetime.datetime.now()
         ))
         self.file.write(body)
+        self.file.flush()
         return resp
 
 
