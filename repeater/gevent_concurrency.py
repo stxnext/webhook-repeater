@@ -38,6 +38,7 @@ class GEventConcurrencyUtils(object):
         # need this because of wsgiproxy (which use httplib)
         # and redis-py (which use standard socket module)
         self.gevent_mod.monkey.patch_socket()
+        self.gevent_mod.monkey.patch_ssl()
 
     def spawn(self, func):
         self.gevent_mod.spawn(func)
