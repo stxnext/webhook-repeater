@@ -1,7 +1,7 @@
+import cPickle as pickle
 import hmac
-import json
 import logging
-import cStringIO as stringio
+import StringIO as stringio
 
 import webob
 import webob.exc
@@ -23,8 +23,10 @@ def sign_request(request, secret):
 class RequestSerializer(object):
 
     def loads(self, string):
-        env = json.loads(string)
-        env['wsgi.input'] = stringio.StringIO(env['X-REPEATER-BODY'])
+        env = pickle.loads(string)
+        env['wsgi.input'] = stringio.StringIO(
+            env['X-REPEATER-BODY']
+        )
         return webob.Request(env)
 
     def dumps(self, req):
@@ -34,7 +36,7 @@ class RequestSerializer(object):
         del env['wsgi.errors']
         if 'webob._body_file' in env:
             del env['webob._body_file']
-        return json.dumps(env)
+        return pickle.dumps(env)
 
 
 class QueueHandler(object):
@@ -72,25 +74,30 @@ class QueueHandler(object):
         # of remote endpoint failure we wait self.backoff seconds and double
         # that on each consecutive failure (until we reach self.max_backoff).
         # When queue is empty we simply exists.
-        backoff = 0
-        while self.requests:
-            if backoff:
-                self.concurrency.sleep(backoff)
+        try:
+            backoff = 0
             while self.requests:
-                req = self.requests.top()
-                logging.debug('Trying to forward request: %s' % req.path)
-                if self._forward(req):
-                    self.requests.pop()
-                    backoff = self.backoff
-                    if self.requests:
-                        self.concurrency.sleep(self.timeout)
-                else:
-                    break
-            backoff = 2 * backoff if backoff else self.backoff
-            if backoff > self.max_backoff:
-                backoff = self.max_backoff
-        with self.lock:
-            self.handler = None
+                if backoff:
+                    self.concurrency.sleep(backoff)
+                while self.requests:
+                    req = self.requests.top()
+                    logging.debug('Trying to forward request: %s' % req.path)
+                    if self._forward(req):
+                        self.requests.pop()
+                        backoff = self.backoff
+                        if self.requests:
+                            self.concurrency.sleep(self.timeout)
+                    else:
+                        break
+                backoff = 2 * backoff if backoff else self.backoff
+                if backoff > self.max_backoff:
+                    backoff = self.max_backoff
+            with self.lock:
+                self.handler = None
+        except Exception:
+            logging.exception('Greenlet failed with unexcepted error')
+            with self.lock:
+                self.handler = None
 
     def _forward(self, request):
         try:
@@ -153,7 +160,11 @@ class Repeater(object):
         host, queue = self.paths.get(request.path_info, (None, None))
         if not host:
             return webob.exc.HTTPNotFound()
-        if request.remote_addr != host:
+        remote_addr = request.headers.get(
+            'X-Forwarded-For',
+            request.remote_addr
+        )
+        if remote_addr != host:
             return webob.exc.HTTPForbidden()
         request = sign_request(request.copy(), self.secret)
         queue.push(request)
