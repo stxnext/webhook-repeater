@@ -21,7 +21,6 @@ def sign_request(request, secret):
 
 @implementer(IRequestSerializer)
 class RequestSerializer(object):
-
     def loads(self, string):
         env = pickle.loads(string)
         env['wsgi.input'] = stringio.StringIO(
@@ -40,7 +39,6 @@ class RequestSerializer(object):
 
 
 class QueueHandler(object):
-
     # This is a so-called queue handler. We got one for each remote host:port.
     # It stores requests addressed for endpoints on the host:port
     # and delivers them when possible.
@@ -94,18 +92,22 @@ class QueueHandler(object):
                     backoff = self.max_backoff
             with self.lock:
                 self.handler = None
-        except Exception:
-            logging.exception('Greenlet failed with unexcepted error')
+        except Exception as error:
+            logging.exception('Greenlet failed with unexcepted '
+                              'error\n{}'.format(error))
             with self.lock:
                 self.handler = None
 
     def _forward(self, request):
+        """
+        Method try to get response from proxy server. If server
+        process somehow request and return any response, such request
+        can be forwarded. If connection errors occur such request
+        should be processed once again.
+        """
         try:
             proxy = self.proxies[request.path_info]
-            response = request.get_response(proxy)
-            if response.status_code != 200:
-                logging.warn('HTTP Error: %s' % response.status)
-                return False
+            request.get_response(proxy)
             return True
         except IOError as e:
             logging.warn('IOError: %s' % str(e))
@@ -113,7 +115,6 @@ class QueueHandler(object):
 
 
 class Repeater(object):
-
     # 1. Repeater verifies if incoming request comes from allowed IP
     # 2. Repeater has one queue per destination (host:port)
     # 3. Each incoming request is put in proper destination queue based
@@ -144,7 +145,7 @@ class Repeater(object):
             queue_proxies = {
                 hooks[hook_name]['src_path']: proxies[hook_name]
                 for hook_name in hook_names
-            }
+                }
             queue = self.queue_handler(host_name, queue_proxies, registry)
             for hook_name in hook_names:
                 src_path = hooks[hook_name]['src_path']

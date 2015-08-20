@@ -1,9 +1,9 @@
 import cStringIO as stringio
+import pickle
+import unittest
 
 import webob
-
 import mock
-import unittest
 
 from repeater.application import (
     RequestSerializer,
@@ -14,7 +14,6 @@ from repeater.application import (
 
 
 class RequestSerializerTestCase(unittest.TestCase):
-
     def setUp(self):
         self.serializer = RequestSerializer()
         self.body = 'body'
@@ -24,15 +23,22 @@ class RequestSerializerTestCase(unittest.TestCase):
             'wsgi.errors': None,
             'key1': 'value1',
             'key2': 'value2',
+            'webob._body_file': "body_file"
         }
-        self.string = '{"key1": "val1", "key2": "val2", "X-REPEATER-BODY": ' \
-                      '"body"}'
+        self.string = pickle.dumps({
+            "key1": "val1",
+            "key2": "val2",
+            "X-REPEATER-BODY": "body"
+        })
 
     def test_serialize(self):
         string = self.serializer.dumps(self.request)
-        assert '"key2": "value2"' in string
-        assert '"key1": "value1"' in string
-        assert '"X-REPEATER-BODY": "body"' in string
+        assert "key2" in string
+        assert "value2" in string
+        assert "key1" in string
+        assert "value1" in string
+        assert "X-REPEATER-BODY" in string
+        assert "body" in string
 
     def test_deserialize(self):
         req = self.serializer.loads(self.string)
@@ -42,7 +48,6 @@ class RequestSerializerTestCase(unittest.TestCase):
 
 
 class QueueMock(object):
-
     def __init__(self, queue=[]):
         self.queue = queue
 
@@ -60,7 +65,6 @@ class QueueMock(object):
 
 
 class QueueHandlerTestCase(unittest.TestCase):
-
     def setUp(self):
         self.registry = mock.Mock()
         self.registry.settings = {
@@ -141,16 +145,18 @@ class QueueHandlerTestCase(unittest.TestCase):
         assert req1.get_response.mock_calls[0][1] == (self.path1_proxy,)
         assert req2.get_response.mock_calls[0][1] == (self.path2_proxy,)
         assert self.concurrency_utils.sleep.call_count == 1
-        assert self.concurrency_utils.sleep.mock_calls[0][1] == (2, )
+        assert self.concurrency_utils.sleep.mock_calls[0][1] == (2,)
 
-    def test_forwarding_fail(self):
+    def test_forwarding_until_400(self):
+        """
+        Test forwarding requests until any response will came from
+        remote (in this case 400).
+        """
         req = mock.Mock()
         req.path_info = 'path1'
         resp1 = mock.Mock()
         resp1.status_code = 400
-        resp2 = mock.Mock()
-        resp2.status_code = 200
-        req.get_response.side_effect = [resp1, IOError(), resp1, resp2]
+        req.get_response.side_effect = [IOError(), IOError(), resp1]
         self.queue[:] = [req]
         QueueHandler('name', self.proxies, self.registry)
 
@@ -160,14 +166,16 @@ class QueueHandlerTestCase(unittest.TestCase):
         assert req.get_response.mock_calls[0][1] == (self.path1_proxy,)
         assert req.get_response.mock_calls[1][1] == (self.path1_proxy,)
         assert req.get_response.mock_calls[2][1] == (self.path1_proxy,)
-        assert req.get_response.mock_calls[3][1] == (self.path1_proxy,)
-        assert req.get_response.call_count == 4
-        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1, )
-        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2, )
-        assert self.concurrency_utils.sleep.mock_calls[2][1] == (4, )
-        assert self.concurrency_utils.sleep.call_count == 3
+        assert req.get_response.call_count == 3
+        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1,)
+        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2,)
+        assert self.concurrency_utils.sleep.call_count == 2
 
     def test_forwarding_two_requests_with_fail(self):
+        """
+        Test forwarding requests until any response will came from
+        remote (in this case 200).
+        """
         req1 = mock.Mock()
         req1.path_info = 'path1'
         req2 = mock.Mock()
@@ -187,8 +195,8 @@ class QueueHandlerTestCase(unittest.TestCase):
         assert req1.get_response.call_count == 2
         assert req2.get_response.mock_calls[0][1] == (self.path2_proxy,)
         assert req2.get_response.call_count == 1
-        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1, )
-        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2, )
+        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1,)
+        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2,)
         assert self.concurrency_utils.sleep.call_count == 2
 
     def test_max_backoff(self):
@@ -209,15 +217,40 @@ class QueueHandlerTestCase(unittest.TestCase):
         worker = self.concurrency_utils.spawn.mock_calls[0][1][0]
         worker()
         assert not self.queue
-        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1, )
-        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2, )
-        assert self.concurrency_utils.sleep.mock_calls[2][1] == (4, )
-        assert self.concurrency_utils.sleep.mock_calls[3][1] == (4, )
+        assert self.concurrency_utils.sleep.mock_calls[0][1] == (1,)
+        assert self.concurrency_utils.sleep.mock_calls[1][1] == (2,)
+        assert self.concurrency_utils.sleep.mock_calls[2][1] == (4,)
+        assert self.concurrency_utils.sleep.mock_calls[3][1] == (4,)
         assert self.concurrency_utils.sleep.call_count == 4
+
+    def test_forwarding_raise_exception(self):
+        """
+        Test catching exception raised by forward method.
+        """
+        req1 = mock.Mock()
+        req1.path_info = 'path1'
+        req2 = mock.Mock()
+        req2.path_info = 'path2'
+        resp = mock.Mock()
+        resp.status_code = 200
+        req1.get_response.side_effect = [KeyError(), resp]
+        req2.get_response.return_value = resp
+        self.queue[:] = [req1, req2]
+        proxies = {
+            'path1': '',
+        }
+        QueueHandler('name', proxies, self.registry)
+
+        worker = self.concurrency_utils.spawn.mock_calls[0][1][0]
+        worker()
+        assert self.queue
+        assert req1.get_response.mock_calls[0][1] == ('',)
+        assert req1.get_response.call_count == 1
+        assert len(req2.get_response.mock_calls) == 0
+        assert self.concurrency_utils.sleep.mock_calls == []
 
 
 class RepeaterTestCase(unittest.TestCase):
-
     def setUp(self):
         self.registry = mock.Mock()
         self.registry.settings = {
@@ -325,9 +358,32 @@ class RepeaterTestCase(unittest.TestCase):
         assert req_copy.path_info == '/src_path3'
         assert self.handlers[1].push.call_count == 1
 
+    def test_request_catch_http_not_found(self):
+        """
+        Test Repeater class for HTTPNotFound exception.
+        """
+        self.hooks['hook1']['src_host'] = ''
+        repeater = Repeater(self.hooks, self.registry)
+        req = webob.Request.blank('/src_path1')
+        response = req.get_response(repeater)
+        assert len(self.handlers[0].push.mock_calls) == 0
+        assert self.handlers[0].push.call_count == 0
+        assert response.status_code == 404
+
+    def test_request_catch_http_forbidden(self):
+        """
+        Test Repeater class for HTTPForbidden exception.
+        """
+        self.hooks['hook1']['src_path'] = '/wrong_path'
+        repeater = Repeater(self.hooks, self.registry)
+        req = webob.Request.blank('/wrong_path')
+        response = req.get_response(repeater)
+        assert len(self.handlers[0].push.mock_calls) == 0
+        assert self.handlers[0].push.call_count == 0
+        assert response.status_code == 403
+
 
 class SignRequestTestCase(unittest.TestCase):
-
     def test_sign_request(self):
         req = webob.Request.blank('/')
         req.body = 'ala ma kota'
