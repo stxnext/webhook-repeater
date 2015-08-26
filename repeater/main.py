@@ -6,7 +6,6 @@ import sys
 from repeater.application import Repeater as _Repeater
 from repeater.registry import bootstrap as _bootstrap
 
-
 nodefault = object()
 
 
@@ -66,9 +65,7 @@ def parse_hooks(config_parser):
                 if val is None:  # empty strings are ok
                     raise ConfigError(
                         'Error: missing parmeter "%s" for hook "%s"\n' % (
-                            hook,
-                            param
-                        )
+                            param, hook)
                     )
             hook_spec = hooks[hook]
             src_path = hook_spec['src_path']
@@ -99,7 +96,6 @@ def main(
         bootstrap=_bootstrap,
         repeater=_Repeater,
         logging_config=logging.config):
-
     try:
         parser = argument_parser()
         parser.add_argument(
