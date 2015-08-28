@@ -1,13 +1,15 @@
 import cPickle as pickle
 import hmac
-import logging
 import StringIO as stringio
+import logging
 
 import webob
 import webob.exc
 import wsgiproxy.app
+
 from zope.interface import implementer
 
+from log import webhook_logger
 from repeater.interfaces import IRequestSerializer
 
 
@@ -79,7 +81,8 @@ class QueueHandler(object):
                     self.concurrency.sleep(backoff)
                 while self.requests:
                     req = self.requests.top()
-                    logging.debug('Trying to forward request: %s' % req.path)
+                    logging.info('Trying to forward request: '
+                                 '%s' % req.path)
                     if self._forward(req):
                         self.requests.pop()
                         backoff = self.backoff
@@ -93,8 +96,8 @@ class QueueHandler(object):
             with self.lock:
                 self.handler = None
         except Exception as error:
-            logging.exception('Greenlet failed with unexcepted '
-                              'error\n{}'.format(error))
+            webhook_logger.exception('Greenlet failed with unexcepted '
+                                     'error\n{}'.format(error))
             with self.lock:
                 self.handler = None
 
@@ -110,7 +113,7 @@ class QueueHandler(object):
             request.get_response(proxy)
             return True
         except IOError as e:
-            logging.warn('IOError: %s' % str(e))
+            webhook_logger.warn('IOError: %s' % str(e))
             return False
 
 
@@ -145,7 +148,7 @@ class Repeater(object):
             queue_proxies = {
                 hooks[hook_name]['src_path']: proxies[hook_name]
                 for hook_name in hook_names
-                }
+            }
             queue = self.queue_handler(host_name, queue_proxies, registry)
             for hook_name in hook_names:
                 src_path = hooks[hook_name]['src_path']
@@ -160,12 +163,17 @@ class Repeater(object):
     def _handle(self, request):
         host, queue = self.paths.get(request.path_info, (None, None))
         if not host:
+            webhook_logger.error("host: {} not found ! Request path info "
+                                 "was: {}. Please check webhook settings "
+                                 "in Jira.".format(host, request.path_info))
             return webob.exc.HTTPNotFound()
         remote_addr = request.headers.get(
             'X-Forwarded-For',
             request.remote_addr
         )
         if remote_addr != host:
+            webhook_logger.error("access denied, remote_address:{} but "
+                                 "expected: {}".format(remote_addr, host))
             return webob.exc.HTTPForbidden()
         request = sign_request(request.copy(), self.secret)
         queue.push(request)

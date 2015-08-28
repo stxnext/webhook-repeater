@@ -360,7 +360,7 @@ class RepeaterTestCase(unittest.TestCase):
 
     def test_request_catch_http_not_found(self):
         """
-        Test Repeater class for HTTPNotFound exception.
+        Test catching exception when in Jira wrong path was set
         """
         self.hooks['hook1']['src_host'] = ''
         repeater = Repeater(self.hooks, self.registry)
@@ -372,7 +372,8 @@ class RepeaterTestCase(unittest.TestCase):
 
     def test_request_catch_http_forbidden(self):
         """
-        Test Repeater class for HTTPForbidden exception.
+        Test catching exception when different src_host was set in config
+        file and from different remote_host send jira request.
         """
         self.hooks['hook1']['src_path'] = '/wrong_path'
         repeater = Repeater(self.hooks, self.registry)
