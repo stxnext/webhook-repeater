@@ -167,10 +167,7 @@ class Repeater(object):
                                  "was: {}. Please check webhook settings "
                                  "in Jira.".format(host, request.path_info))
             return webob.exc.HTTPNotFound()
-        remote_addr = request.headers.get(
-            'X-Forwarded-For',
-            request.remote_addr
-        )
+        remote_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
         if remote_addr != host:
             webhook_logger.error("access denied, remote_address:{} but "
                                  "expected: {}".format(remote_addr, host))
