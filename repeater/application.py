@@ -1,3 +1,7 @@
+"""
+Main webhook-repeater application module.
+"""
+
 import cPickle as pickle
 import hmac
 import StringIO as stringio
@@ -9,16 +13,49 @@ import wsgiproxy.app
 
 from zope.interface import implementer
 
-from log import webhook_logger
+from repeater.log import webhook_logger
 from repeater.interfaces import IRequestSerializer
 
 
 def sign_request(request, secret):
+    """
+    Method sign request by provided secret.
+    """
     body = request.body  # by purpose to compute missing content_length
     msg = request.content_type + str(request.content_length) + body
     sig = hmac.new(secret, msg).hexdigest()
     request.headers['X-REPEATER-SIG'] = sig
     return request
+
+
+def check_remote_address(hosts, remote_address):
+    """
+    Method check if remote address is correct
+    """
+    ip_address = generate_inet_aton(remote_address)
+    for host in hosts.split(','):
+        try:
+            net_str, bits = host.split('/')
+        except ValueError:
+            net_str = host
+            bits = 32
+        net_address = generate_inet_aton(net_str)
+        mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
+        if (ip_address & mask) == (net_address & mask):
+            return True
+    return False
+
+
+def generate_inet_aton(address):
+    """
+    Method converts the Internet host `address` from the IPv4
+    numbers-and-dots notation into binary form (in network byte order)
+    Returns nonzero if the `address` is valid, zero if not.
+    """
+    try:
+        return int(''.join(['%02x' % int(x) for x in address.split('.')]), 16)
+    except AttributeError:
+        return 0
 
 
 @implementer(IRequestSerializer)
@@ -152,8 +189,8 @@ class Repeater(object):
             queue = self.queue_handler(host_name, queue_proxies, registry)
             for hook_name in hook_names:
                 src_path = hooks[hook_name]['src_path']
-                src_host = hooks[hook_name]['src_host']
-                self.paths[src_path] = (src_host, queue)
+                src_hosts = hooks[hook_name]['src_host']
+                self.paths[src_path] = (src_hosts, queue)
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
@@ -161,16 +198,17 @@ class Repeater(object):
         return resp(environ, start_response)
 
     def _handle(self, request):
-        host, queue = self.paths.get(request.path_info, (None, None))
-        if not host:
-            webhook_logger.error("host: {} not found ! Request path info "
-                                 "was: {}. Please check webhook settings "
-                                 "in Jira.".format(host, request.path_info))
+        hosts, queue = self.paths.get(request.path_info, (None, None))
+        if not hosts:
+            webhook_logger.error(
+                "hosts is empty! Is config file ok? Request path info was: "
+                "%s. Please check webhook settings in Jira." % request.path_info
+            )
             return webob.exc.HTTPNotFound()
-        remote_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if remote_addr != host:
-            webhook_logger.error("access denied, remote_address:{} but "
-                                 "expected: {}".format(remote_addr, host))
+        address = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if not check_remote_address(hosts, address):
+            webhook_logger.error("access denied, remote_address:%s but "
+                                 "expected: %s" % (address, hosts))
             return webob.exc.HTTPForbidden()
         request = sign_request(request.copy(), self.secret)
         queue.push(request)

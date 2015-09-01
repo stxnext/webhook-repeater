@@ -1,3 +1,6 @@
+"""
+Testing file for `application` module of webhook-repeater app.
+"""
 import cStringIO as stringio
 import pickle
 import unittest
@@ -9,7 +12,9 @@ from repeater.application import (
     RequestSerializer,
     QueueHandler,
     Repeater,
-    sign_request
+    sign_request,
+    check_remote_address,
+    generate_inet_aton
 )
 
 
@@ -265,19 +270,19 @@ class RepeaterTestCase(unittest.TestCase):
         self.concurrency_utils = concurrency_utils
         self.hooks = {
             'hook1': {
-                'src_host': 'src_host1',
+                'src_host': '127.0.0.1',
                 'src_path': '/src_path1',
                 'dst_host': 'dst_host1',
                 'dst_path': '/dst_path1',
             },
             'hook2': {
-                'src_host': 'src_host3',
+                'src_host': '192.168.1.100',
                 'src_path': '/src_path2',
                 'dst_host': 'dst_host1',  # dst_host1 by purpose
                 'dst_path': '/dst_path2',
             },
             'hook3': {
-                'src_host': 'src_host3',
+                'src_host': '192.168.1.100',
                 'src_path': '/src_path3',
                 'dst_host': 'dst_host3',
                 'dst_path': '/dst_path3',
@@ -338,21 +343,21 @@ class RepeaterTestCase(unittest.TestCase):
 
     def test_request(self):
         req = webob.Request.blank('/src_path1')
-        req.remote_addr = 'src_host1'
+        req.remote_addr = '127.0.0.1'
         req.get_response(self.repeater)
         req_copy = self.handlers[0].push.mock_calls[0][1][0]
         assert req_copy.path_info == '/src_path1'
         assert self.handlers[0].push.call_count == 1
 
         req = webob.Request.blank('/src_path2')
-        req.remote_addr = 'src_host3'
+        req.remote_addr = '192.168.1.100'
         req.get_response(self.repeater)
         req_copy = self.handlers[0].push.mock_calls[1][1][0]
         assert req_copy.path_info == '/src_path2'
         assert self.handlers[0].push.call_count == 2
 
         req = webob.Request.blank('/src_path3')
-        req.remote_addr = 'src_host3'
+        req.remote_addr = '192.168.1.100'
         req.get_response(self.repeater)
         req_copy = self.handlers[1].push.mock_calls[0][1][0]
         assert req_copy.path_info == '/src_path3'
@@ -384,10 +389,57 @@ class RepeaterTestCase(unittest.TestCase):
         assert response.status_code == 403
 
 
-class SignRequestTestCase(unittest.TestCase):
+class ApplicationTestCase(unittest.TestCase):
+    """
+    Tests for functions in module `application`
+    """
     def test_sign_request(self):
         req = webob.Request.blank('/')
         req.body = 'ala ma kota'
         req = sign_request(req, 'secret')
         sig = req.headers['X-REPEATER-SIG']
         assert sig == '65a415c101d8103bc3866bfe9d5dc818'
+
+    def test_generate_inet_aton(self):
+        """
+        Test returning int value of ip address.
+        """
+        address = '127.0.0.1'
+        int_address = generate_inet_aton(address)
+        self.assertEqual(int_address, 2130706433)
+
+        address = '192.168.1.10'
+        int_address = generate_inet_aton(address)
+        self.assertEqual(int_address, 3232235786)
+
+        address = '192.168.1.11'
+        int_address = generate_inet_aton(address)
+        self.assertEqual(int_address, 3232235787)
+
+    def test_check_remote_address_one_host(self):
+        """
+        Test checking if remote_address is in list of addresses taken
+        from config file. Case when only one host was written in file.
+        """
+        address = '192.168.1.100'
+        hosts = '192.168.1.0/24'
+        self.assertTrue(check_remote_address(hosts, address))
+
+    def test_check_remote_address_multiple_hosts(self):
+        """
+        Test checking if remote_address is in list of addresses taken
+        from config file. Case when multiple host addresses was set.
+        """
+        address = '10.0.1.5'
+        hosts = '192.168.1.0/24, 127.0.0.1, 10.0.1.0/29'
+        self.assertTrue(check_remote_address(hosts, address))
+
+    def test_check_remote_address_not_in_hosts(self):
+        """
+        Test checking if remote_address is not in list of addresses
+        taken from config file.
+        """
+        address = '192.168.2.100'
+        hosts = '192.168.1.0/24'
+        self.assertFalse(check_remote_address(hosts, address))
+
