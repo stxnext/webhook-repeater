@@ -12,7 +12,9 @@ from repeater.application import (
     RequestSerializer,
     QueueHandler,
     Repeater,
-    sign_request
+    sign_request,
+    check_remote_address,
+    generate_inet_aton
 )
 
 
@@ -386,20 +388,32 @@ class RepeaterTestCase(unittest.TestCase):
         assert self.handlers[0].push.call_count == 0
         assert response.status_code == 403
 
-    def test_return_address(self):
+
+class ApplicationTestCase(unittest.TestCase):
+    """
+    Tests for functions in module `application`
+    """
+    def test_sign_request(self):
+        req = webob.Request.blank('/')
+        req.body = 'ala ma kota'
+        req = sign_request(req, 'secret')
+        sig = req.headers['X-REPEATER-SIG']
+        assert sig == '65a415c101d8103bc3866bfe9d5dc818'
+
+    def test_generate_inet_aton(self):
         """
         Test returning int value of ip address.
         """
         address = '127.0.0.1'
-        int_address = self.repeater.return_address(address)
+        int_address = generate_inet_aton(address)
         self.assertEqual(int_address, 2130706433)
 
         address = '192.168.1.10'
-        int_address = self.repeater.return_address(address)
+        int_address = generate_inet_aton(address)
         self.assertEqual(int_address, 3232235786)
 
         address = '192.168.1.11'
-        int_address = self.repeater.return_address(address)
+        int_address = generate_inet_aton(address)
         self.assertEqual(int_address, 3232235787)
 
     def test_check_remote_address_one_host(self):
@@ -409,8 +423,7 @@ class RepeaterTestCase(unittest.TestCase):
         """
         address = '192.168.1.100'
         hosts = '192.168.1.0/24'
-        repeater = Repeater(self.hooks, self.registry)
-        self.assertTrue(repeater.check_remote_address(hosts, address))
+        self.assertTrue(check_remote_address(hosts, address))
 
     def test_check_remote_address_multiple_hosts(self):
         """
@@ -419,8 +432,7 @@ class RepeaterTestCase(unittest.TestCase):
         """
         address = '10.0.1.5'
         hosts = '192.168.1.0/24, 127.0.0.1, 10.0.1.0/29'
-        repeater = Repeater(self.hooks, self.registry)
-        self.assertTrue(repeater.check_remote_address(hosts, address))
+        self.assertTrue(check_remote_address(hosts, address))
 
     def test_check_remote_address_not_in_hosts(self):
         """
@@ -429,14 +441,5 @@ class RepeaterTestCase(unittest.TestCase):
         """
         address = '192.168.2.100'
         hosts = '192.168.1.0/24'
-        repeater = Repeater(self.hooks, self.registry)
-        self.assertFalse(repeater.check_remote_address(hosts, address))
+        self.assertFalse(check_remote_address(hosts, address))
 
-
-class SignRequestTestCase(unittest.TestCase):
-    def test_sign_request(self):
-        req = webob.Request.blank('/')
-        req.body = 'ala ma kota'
-        req = sign_request(req, 'secret')
-        sig = req.headers['X-REPEATER-SIG']
-        assert sig == '65a415c101d8103bc3866bfe9d5dc818'

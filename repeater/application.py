@@ -28,6 +28,36 @@ def sign_request(request, secret):
     return request
 
 
+def check_remote_address(hosts, remote_address):
+    """
+    Method check if remote address is correct
+    """
+    ip_address = generate_inet_aton(remote_address)
+    for host in hosts.split(','):
+        try:
+            net_str, bits = host.split('/')
+        except ValueError:
+            net_str = host
+            bits = 32
+        net_address = generate_inet_aton(net_str)
+        mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
+        if (ip_address & mask) == (net_address & mask):
+            return True
+    return False
+
+
+def generate_inet_aton(address):
+    """
+    Method converts the Internet host `address` from the IPv4
+    numbers-and-dots notation into binary form (in network byte order)
+    Returns nonzero if the `address` is valid, zero if not.
+    """
+    try:
+        return int(''.join(['%02x' % int(x) for x in address.split('.')]), 16)
+    except AttributeError:
+        return 0
+
+
 @implementer(IRequestSerializer)
 class RequestSerializer(object):
     def loads(self, string):
@@ -176,7 +206,7 @@ class Repeater(object):
             )
             return webob.exc.HTTPNotFound()
         address = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if not self.check_remote_address(hosts, address):
+        if not check_remote_address(hosts, address):
             webhook_logger.error("access denied, remote_address:%s but "
                                  "expected: %s" % (address, hosts))
             return webob.exc.HTTPForbidden()
@@ -187,30 +217,3 @@ class Repeater(object):
         response.content_type = 'text/plain'
         response.body = 'OK'
         return response
-
-    def check_remote_address(self, hosts, remote_address):
-        """
-        Method check if remote address is correct
-        """
-        try:
-            ip_address = self.return_address(remote_address)
-        except AttributeError:
-            return False
-        for host in hosts.split(','):
-            try:
-                net_str, bits = host.split('/')
-            except ValueError:
-                net_str = host
-                bits = 32
-            net_address = self.return_address(net_str)
-            mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
-            if (ip_address & mask) == (net_address & mask):
-                return True
-        return False
-
-    @staticmethod
-    def return_address(address):
-        """
-        Method unpack address and return int representation
-        """
-        return int(''.join(['%02x' % int(x) for x in address.split('.')]), 16)
